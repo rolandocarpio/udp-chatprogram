@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+//combined a javaswing gui
 public class Tracker extends JFrame {
     private static final int BUFFER_SIZE = 1024;
     private static final int TRACKER_PORT = 12345;
@@ -18,18 +19,16 @@ public class Tracker extends JFrame {
 
         peers = new ArrayList<>();
 
-        // Create GUI components
         logTextArea = new JTextArea(20, 40);
         logTextArea.setEditable(false);
         JScrollPane scrollPane = new JScrollPane(logTextArea);
 
-        // Add components to the frame
+        // add components to the jframe
         JPanel contentPane = new JPanel();
         contentPane.setLayout(new BorderLayout());
         contentPane.add(scrollPane, BorderLayout.CENTER);
         setContentPane(contentPane);
 
-        // Set frame properties
         pack();
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -92,14 +91,15 @@ public class Tracker extends JFrame {
             String peerEntry = peer.getAddress().getHostAddress() + "," + peer.getPort();
             peerListBuilder.append(peerEntry).append(":");
         }
-    
+
         if (peerListBuilder.length() > 0) {
             peerListBuilder.deleteCharAt(peerListBuilder.length() - 1);
         }
-    
+
         String peerListMessage = peerListBuilder.toString();
         byte[] sendData = peerListMessage.getBytes();
-    
+
+        // allows UDP sending asynchronously without blocking the GUI
         SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() throws Exception {
@@ -108,10 +108,10 @@ public class Tracker extends JFrame {
                 return null;
             }
         };
-    
+
         worker.execute();
     }
-    
+
     private void removePeer(InetAddress address, int port) {
         Iterator<PeerInfo> iterator = peers.iterator();
         while (iterator.hasNext()) {

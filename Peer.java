@@ -21,6 +21,7 @@ public class Peer extends JFrame {
     private JTextArea chatArea;
     private JTextField messageField;
 
+    // combined a javaswing gui
     public Peer(String username, InetAddress trackerAddress, int trackerPort) {
         this.username = username;
         this.peers = new ArrayList<>();
@@ -67,11 +68,12 @@ public class Peer extends JFrame {
         add(inputPanel, BorderLayout.SOUTH);
     }
 
+    // sends disconnected message to peers (NEW)
     private void disconnectAndNotifyPeers(InetAddress trackerAddress, int trackerPort) throws IOException {
         String disconnectMessage = "DISCONNECTED:" + username;
         byte[] sendData = disconnectMessage.getBytes();
 
-        // Send the disconnection message to all peers (excluding self)
+        // send the disconnection message to all peers (excluding self)
         for (PeerInfo peer : peers) {
             if (!peer.getAddress().equals(socket.getLocalAddress()) || peer.getPort() != socket.getLocalPort()) {
                 DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, peer.getAddress(),
@@ -80,14 +82,15 @@ public class Peer extends JFrame {
             }
         }
 
-        // Unregister from the tracker
+        // unregister from the tracker
         unregisterFromTracker(trackerAddress, trackerPort);
 
-        // Close the socket and exit the program
+        // close the socket and exit the program
         disconnect();
         System.exit(0);
     }
 
+    // closes the socket
     private void disconnect() {
         socket.close();
     }
@@ -137,6 +140,7 @@ public class Peer extends JFrame {
         }
     }
 
+    // sends a list to other peers of who's conencted (NEW)
     private void sendPeerList(InetAddress address, int port) throws IOException {
         StringBuilder peerListBuilder = new StringBuilder();
         for (PeerInfo peer : peers) {
