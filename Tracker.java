@@ -1,51 +1,90 @@
+import javax.swing.*;
+import java.awt.*;
 import java.io.IOException;
 import java.net.*;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
-public class Tracker {
+public class Tracker extends JFrame {
     private static final int BUFFER_SIZE = 1024;
     private static final int TRACKER_PORT = 12345;
 
     private List<PeerInfo> peers;
+    private JTextArea logTextArea;
 
     public Tracker() {
-        this.peers = new ArrayList<>();
+        super("Tracker");
+
+        peers = new ArrayList<>();
+
+        // Create GUI components
+        logTextArea = new JTextArea(20, 40);
+        logTextArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(logTextArea);
+
+        // Add components to the frame
+        JPanel contentPane = new JPanel();
+        contentPane.setLayout(new BorderLayout());
+        contentPane.add(scrollPane, BorderLayout.CENTER);
+        setContentPane(contentPane);
+
+        // Set frame properties
+        pack();
+        setLocationRelativeTo(null);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     }
 
-    public void start() {
-        try {
-            DatagramSocket socket = new DatagramSocket(TRACKER_PORT);
-            System.out.println("Tracker started on port " + TRACKER_PORT);
-    
-            while (true) {
-                byte[] receiveData = new byte[BUFFER_SIZE];
-                DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
-                socket.receive(receivePacket);
-    
-                String message = new String(receivePacket.getData()).trim();
-                InetAddress peerAddress = receivePacket.getAddress();
-                int peerPort = receivePacket.getPort();
-    
-                String[] parts = message.split(":");
-                String command = parts[0];
-    
-                if (command.equals("REGISTER")) {
-                    String username = parts[1];
-                    PeerInfo peerInfo = new PeerInfo(peerAddress, peerPort, username);
-                    peers.add(peerInfo);
-                    System.out.println("Peer registered: " + peerAddress.getHostAddress() + ":" + peerPort);
-                    sendPeerList(socket, peerAddress, peerPort);
-                } else if (command.equals("UNREGISTER")) {
-                    removePeer(peerAddress, peerPort);
-                    System.out.println("Peer unregistered: " + peerAddress.getHostAddress() + ":" + peerPort);
+    public void startTracker() {
+        SwingWorker<Void, String> worker = new SwingWorker<Void, String>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                try {
+                    DatagramSocket socket = new DatagramSocket(TRACKER_PORT);
+                    publish("Tracker started on port " + TRACKER_PORT);
+                    InetAddress localhost = InetAddress.getLocalHost();
+                    String ipAddress = localhost.getHostAddress();
+                    publish("IP Address: " + ipAddress);
+
+                    while (true) {
+                        byte[] receiveData = new byte[BUFFER_SIZE];
+                        DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+                        socket.receive(receivePacket);
+
+                        String message = new String(receivePacket.getData()).trim();
+                        InetAddress peerAddress = receivePacket.getAddress();
+                        int peerPort = receivePacket.getPort();
+
+                        String[] parts = message.split(":");
+                        String command = parts[0];
+
+                        if (command.equals("REGISTER")) {
+                            String username = parts[1];
+                            PeerInfo peerInfo = new PeerInfo(peerAddress, peerPort, username);
+                            peers.add(peerInfo);
+                            publish("Peer registered: " + peerAddress.getHostAddress() + ":" + peerPort);
+                            sendPeerList(socket, peerAddress, peerPort);
+                        } else if (command.equals("UNREGISTER")) {
+                            removePeer(peerAddress, peerPort);
+                            publish("Peer unregistered: " + peerAddress.getHostAddress() + ":" + peerPort);
+                        }
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                return null;
+            }
+
+            @Override
+            protected void process(List<String> chunks) {
+                for (String message : chunks) {
+                    logTextArea.append(message + "\n");
                 }
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        };
+
+        worker.execute();
     }
-    
 
     private void sendPeerList(DatagramSocket socket, InetAddress address, int port) throws IOException {
         StringBuilder peerListBuilder = new StringBuilder();
@@ -53,34 +92,45 @@ public class Tracker {
             String peerEntry = peer.getAddress().getHostAddress() + "," + peer.getPort();
             peerListBuilder.append(peerEntry).append(":");
         }
-
+    
         if (peerListBuilder.length() > 0) {
             peerListBuilder.deleteCharAt(peerListBuilder.length() - 1);
         }
-
+    
         String peerListMessage = peerListBuilder.toString();
         byte[] sendData = peerListMessage.getBytes();
-
-        DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, address, port);
-        socket.send(sendPacket);
+    
+        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, address, port);
+                socket.send(sendPacket);
+                return null;
+            }
+        };
+    
+        worker.execute();
     }
-
+    
     private void removePeer(InetAddress address, int port) {
-        PeerInfo peerToRemove = null;
-        for (PeerInfo peer : peers) {
+        Iterator<PeerInfo> iterator = peers.iterator();
+        while (iterator.hasNext()) {
+            PeerInfo peer = iterator.next();
             if (peer.getAddress().equals(address) && peer.getPort() == port) {
-                peerToRemove = peer;
+                iterator.remove();
                 break;
             }
-        }
-        if (peerToRemove != null) {
-            peers.remove(peerToRemove);
         }
     }
 
     public static void main(String[] args) {
-        Tracker tracker = new Tracker();
-        tracker.start();
+        SwingUtilities.invokeLater(new Runnable() {
+            public void run() {
+                Tracker tracker = new Tracker();
+                tracker.setVisible(true);
+                tracker.startTracker();
+            }
+        });
     }
 
     private static class PeerInfo {

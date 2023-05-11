@@ -1,3 +1,7 @@
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -5,56 +9,107 @@ import java.net.*;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.Scanner;
 
-public class Peer {
+public class Peer extends JFrame {
     private static final int BUFFER_SIZE = 1024;
     private static final int TRACKER_PORT = 12345;
 
     private String username;
-    private InetAddress trackerAddress;
-    private int trackerPort;
     private DatagramSocket socket;
     private List<PeerInfo> peers;
 
+    private JTextArea chatArea;
+    private JTextField messageField;
+
     public Peer(String username, InetAddress trackerAddress, int trackerPort) {
         this.username = username;
-        this.trackerAddress = trackerAddress;
-        this.trackerPort = trackerPort;
         this.peers = new ArrayList<>();
+
+        setTitle(username + "'s Peer Chat");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setSize(800, 800);
+        setLayout(new BorderLayout());
+
+        chatArea = new JTextArea();
+        chatArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(chatArea);
+        add(scrollPane, BorderLayout.CENTER);
+
+        JPanel inputPanel = new JPanel(new BorderLayout());
+        messageField = new JTextField();
+
+        class SendButtonAction implements ActionListener {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                String message = messageField.getText().trim();
+                if (!message.isEmpty()) {
+                    try {
+                        if (message.equals(".")) {
+                            disconnectAndNotifyPeers(trackerAddress, trackerPort);
+                        } else {
+                            sendMessageToPeers(message);
+                        }
+                        messageField.setText("");
+                    } catch (IOException ex) {
+                        ex.printStackTrace();
+                    }
+                }
+            }
+        }
+
+        JButton sendButton = new JButton("Send");
+        SendButtonAction sendButtonAction = new SendButtonAction();
+        sendButton.addActionListener(sendButtonAction);
+        messageField.addActionListener(sendButtonAction);
+
+        inputPanel.add(messageField, BorderLayout.CENTER);
+        inputPanel.add(sendButton, BorderLayout.EAST);
+        add(inputPanel, BorderLayout.SOUTH);
     }
 
-    public void startChat() {
+    private void disconnectAndNotifyPeers(InetAddress trackerAddress, int trackerPort) throws IOException {
+        String disconnectMessage = "DISCONNECTED:" + username;
+        byte[] sendData = disconnectMessage.getBytes();
+
+        // Send the disconnection message to all peers (excluding self)
+        for (PeerInfo peer : peers) {
+            if (!peer.getAddress().equals(socket.getLocalAddress()) || peer.getPort() != socket.getLocalPort()) {
+                DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, peer.getAddress(),
+                        peer.getPort());
+                socket.send(sendPacket);
+            }
+        }
+
+        // Unregister from the tracker
+        unregisterFromTracker(trackerAddress, trackerPort);
+
+        // Close the socket and exit the program
+        disconnect();
+        System.exit(0);
+    }
+
+    private void disconnect() {
+        socket.close();
+    }
+
+    public void startChat(InetAddress trackerAddress, int trackerPort) {
         try {
             // Create a UDP socket for peer-to-peer communication
             socket = new DatagramSocket();
 
             // Register with the tracker
-            registerWithTracker();
+            registerWithTracker(trackerAddress, trackerPort);
 
             // Start listening for incoming messages in a separate thread
             startListening();
-
-            // Read messages from the user and send them to other peers
-            BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-            while (true) {
-                String message = reader.readLine();
-                if (message.equalsIgnoreCase("exit")) {
-                    break;
-                }
-                sendMessageToPeers(message);
-            }
-
-            // Unregister from the tracker before exiting
-            unregisterFromTracker();
-
-            socket.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private void registerWithTracker() throws IOException {
+    private void registerWithTracker(InetAddress trackerAddress, int trackerPort) throws IOException {
+        // Create a UDP socket for peer-to-peer communication
+        socket = new DatagramSocket();
         String registerMessage = "REGISTER:" + username;
         byte[] sendData = registerMessage.getBytes();
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, trackerAddress, trackerPort);
@@ -73,11 +128,34 @@ public class Peer {
             InetAddress peerAddress = InetAddress.getByName(address);
             PeerInfo peerInfo = new PeerInfo(peerAddress, port);
             this.peers.add(peerInfo);
-            System.out.println("Connected to peer: " + address + ":" + port);
+            chatArea.append("Connected to peer: " + address + ":" + port + "\n");
+        }
+
+        // Send the updated peer list to all peers (including the newly registered peer)
+        for (PeerInfo peer : this.peers) {
+            sendPeerList(peer.getAddress(), peer.getPort());
         }
     }
 
-    private void unregisterFromTracker() throws IOException {
+    private void sendPeerList(InetAddress address, int port) throws IOException {
+        StringBuilder peerListBuilder = new StringBuilder();
+        for (PeerInfo peer : peers) {
+            String peerEntry = peer.getAddress().getHostAddress() + "," + peer.getPort();
+            peerListBuilder.append(peerEntry).append(":");
+        }
+
+        if (peerListBuilder.length() > 0) {
+            peerListBuilder.deleteCharAt(peerListBuilder.length() - 1);
+        }
+
+        String peerListMessage = peerListBuilder.toString();
+        byte[] sendData = peerListMessage.getBytes();
+
+        DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, address, port);
+        socket.send(sendPacket);
+    }
+
+    private void unregisterFromTracker(InetAddress trackerAddress, int trackerPort) throws IOException {
         String unregisterMessage = "UNREGISTER:" + username;
         byte[] sendData = unregisterMessage.getBytes();
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, trackerAddress, trackerPort);
@@ -92,8 +170,8 @@ public class Peer {
                     DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
                     socket.receive(receivePacket);
                     String message = new String(receivePacket.getData(), 0, receivePacket.getLength()).trim();
-                    System.out.println(message);
-    
+                    chatArea.append(message + "\n");
+
                     // Reset the buffer
                     receiveData = new byte[BUFFER_SIZE];
                 }
@@ -103,7 +181,6 @@ public class Peer {
         });
         listenerThread.start();
     }
-    
 
     private void sendMessageToPeers(String message) throws IOException {
         String timestampedMessage = "[" + new Date() + "] " + username + ": " + message;
@@ -112,7 +189,8 @@ public class Peer {
         // Send the message to all peers (excluding self)
         for (PeerInfo peer : peers) {
             if (!peer.getAddress().equals(socket.getLocalAddress()) || peer.getPort() != socket.getLocalPort()) {
-                DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, peer.getAddress(), peer.getPort());
+                DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, peer.getAddress(),
+                        peer.getPort());
                 socket.send(sendPacket);
             }
         }
@@ -120,18 +198,17 @@ public class Peer {
 
     public static void main(String[] args) {
         try {
+            // Get the username from the user
+            String username = JOptionPane.showInputDialog("Enter your username");
+
             InetAddress trackerAddress = InetAddress.getLocalHost();
             int trackerPort = TRACKER_PORT;
 
-            // Get the username from the user
-            Scanner scanner = new Scanner(System.in);
-            System.out.print("Enter your username: ");
-            String username = scanner.nextLine();
-
             // Create a peer and start the chat
             Peer peer = new Peer(username, trackerAddress, trackerPort);
-            peer.startChat();
-        } catch (UnknownHostException e) {
+            peer.setVisible(true);
+            peer.startChat(trackerAddress, trackerPort);
+        } catch (IOException e) {
             e.printStackTrace();
         }
     }
