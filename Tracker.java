@@ -61,11 +61,11 @@ public class Tracker extends JFrame {
                             String username = parts[1];
                             PeerInfo peerInfo = new PeerInfo(peerAddress, peerPort, username);
                             peers.add(peerInfo);
-                            publish("Peer registered: " + peerAddress.getHostAddress() + ":" + peerPort);
+                            publish("Peer registered: " + username);
                             sendPeerList(socket, peerAddress, peerPort);
                         } else if (command.equals("UNREGISTER")) {
                             removePeer(peerAddress, peerPort);
-                            publish("Peer unregistered: " + peerAddress.getHostAddress() + ":" + peerPort);
+                            publish("Peer unregistered: " + parts[1]);
                         }
                     }
                 } catch (IOException e) {
